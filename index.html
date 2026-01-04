@@ -6,6 +6,8 @@
     <title>Connect Wallet - COPE Referral Bot</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -195,8 +197,21 @@
         </button>
         
         <button id="walletconnectBtn" class="wallet-button walletconnect">
-            🔷 Connect WalletConnect
+            📱 Scan QR Code (Mobile)
         </button>
+        
+        <div id="qrCodeContainer" style="display: none; text-align: center; margin: 20px 0;">
+            <div style="background: white; padding: 20px; border-radius: 10px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                <canvas id="qrCode"></canvas>
+            </div>
+            <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                📱 Scan this QR code with your mobile wallet<br>
+                (MetaMask, Trust Wallet, Coinbase Wallet, etc.)
+            </p>
+            <button id="closeQrBtn" style="margin-top: 10px; padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
+                Close QR Code
+            </button>
+        </div>
         
         <button id="connectBtn" class="connect-button">
             Connect to Bot
@@ -211,6 +226,7 @@
         let provider = null;
         let signer = null;
         let walletAddress = null;
+        let walletConnectProvider = null;
         
         const statusEl = document.getElementById('status');
         const connectedInfo = document.getElementById('connectedInfo');
@@ -218,6 +234,9 @@
         const metamaskBtn = document.getElementById('metamaskBtn');
         const walletconnectBtn = document.getElementById('walletconnectBtn');
         const connectBtn = document.getElementById('connectBtn');
+        const qrCodeContainer = document.getElementById('qrCodeContainer');
+        const qrCodeCanvas = document.getElementById('qrCode');
+        const closeQrBtn = document.getElementById('closeQrBtn');
         
         function showStatus(message, type = 'info') {
             statusEl.textContent = message;
@@ -232,7 +251,21 @@
         async function connectMetaMask() {
             try {
                 if (typeof window.ethereum === 'undefined') {
-                    showStatus('MetaMask not found. Please install MetaMask extension.', 'error');
+                    showStatus('MetaMask not found. Please install MetaMask extension or use a mobile wallet.', 'error');
+                    
+                    // Show helpful instructions
+                    const instructions = `
+                        <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 10px; text-align: left;">
+                            <strong>How to install MetaMask:</strong><br>
+                            1. <a href="https://metamask.io/download/" target="_blank" style="color: #667eea;">Download MetaMask</a><br>
+                            2. Install the browser extension<br>
+                            3. Create or import a wallet<br>
+                            4. Refresh this page and try again<br><br>
+                            <strong>Or use on mobile:</strong><br>
+                            Open this page in MetaMask's in-app browser
+                        </div>
+                    `;
+                    statusEl.innerHTML = statusEl.textContent + instructions;
                     return;
                 }
                 
@@ -251,13 +284,152 @@
                 
                 showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
             } catch (error) {
-                showStatus('Failed to connect: ' + error.message, 'error');
+                if (error.code === 4001) {
+                    showStatus('Connection rejected. Please approve the connection request.', 'error');
+                } else {
+                    showStatus('Failed to connect: ' + error.message, 'error');
+                }
             }
         }
         
         async function connectWalletConnect() {
-            showStatus('WalletConnect integration coming soon. Please use MetaMask for now.', 'info');
+            try {
+                showStatus('Generating QR code...', 'info');
+                
+                // Initialize WalletConnect
+                walletConnectProvider = new WalletConnectProvider.default({
+                    rpc: {
+                        56: "https://bsc-dataseed1.binance.org/", // BNB Chain
+                    },
+                    chainId: 56,
+                });
+                
+                // Listen for URI (QR code)
+                walletConnectProvider.connector.on('display_uri', (error, payload) => {
+                    if (error) {
+                        console.error('WalletConnect URI error:', error);
+                        return;
+                    }
+                    const uri = payload.params[0];
+                    if (uri) {
+                        generateQRCode(uri);
+                        qrCodeContainer.style.display = 'block';
+                        showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                    }
+                });
+                
+                // Enable session (triggers QR code)
+                await walletConnectProvider.enable();
+                
+                // Get accounts
+                const accounts = walletConnectProvider.accounts;
+                if (accounts && accounts.length > 0) {
+                    walletAddress = accounts[0];
+                    
+                    // Create ethers provider from WalletConnect
+                    provider = new ethers.providers.Web3Provider(walletConnectProvider);
+                    signer = provider.getSigner();
+                    
+                    walletAddressEl.textContent = walletAddress;
+                    connectedInfo.classList.add('show');
+                    connectBtn.classList.add('show');
+                    qrCodeContainer.style.display = 'none';
+                    hideStatus();
+                    
+                    showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
+                }
+            } catch (error) {
+                if (error.message && error.message.includes('User closed modal') || error.message.includes('User closed')) {
+                    showStatus('Connection cancelled.', 'info');
+                    qrCodeContainer.style.display = 'none';
+                } else {
+                    // Try to get URI from connector
+                    if (walletConnectProvider && walletConnectProvider.connector) {
+                        const uri = walletConnectProvider.connector.uri;
+                        if (uri) {
+                            generateQRCode(uri);
+                            qrCodeContainer.style.display = 'block';
+                            showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                        } else {
+                            showStatus('Failed to generate QR code. Please try again.', 'error');
+                        }
+                    } else {
+                        showStatus('Failed to connect: ' + error.message, 'error');
+                    }
+                }
+            }
         }
+        
+        function generateQRCode(uri) {
+            // Clear previous QR code
+            const ctx = qrCodeCanvas.getContext('2d');
+            ctx.clearRect(0, 0, qrCodeCanvas.width, qrCodeCanvas.height);
+            
+            // Generate QR code
+            QRCode.toCanvas(qrCodeCanvas, uri, {
+                width: 250,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                }
+            }, function (error) {
+                if (error) {
+                    console.error('QR code generation error:', error);
+                    showStatus('Failed to generate QR code.', 'error');
+                }
+            });
+        }
+        
+        // Listen for WalletConnect connection
+        if (typeof WalletConnectProvider !== 'undefined') {
+            // Set up event listeners for WalletConnect
+            window.addEventListener('load', () => {
+                // Check if there's an existing WalletConnect session
+                try {
+                    const wcProvider = new WalletConnectProvider.default({
+                        rpc: {
+                            56: "https://bsc-dataseed1.binance.org/",
+                        },
+                        chainId: 56,
+                    });
+                    
+                    wcProvider.on('connect', () => {
+                        const accounts = wcProvider.accounts;
+                        if (accounts && accounts.length > 0) {
+                            walletAddress = accounts[0];
+                            provider = new ethers.providers.Web3Provider(wcProvider);
+                            signer = provider.getSigner();
+                            
+                            walletAddressEl.textContent = walletAddress;
+                            connectedInfo.classList.add('show');
+                            connectBtn.classList.add('show');
+                            qrCodeContainer.style.display = 'none';
+                            showStatus('✅ Wallet connected!', 'success');
+                        }
+                    });
+                    
+                    wcProvider.on('display_uri', (uri) => {
+                        generateQRCode(uri);
+                        qrCodeContainer.style.display = 'block';
+                        showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                    });
+                } catch (e) {
+                    // WalletConnect not available, ignore
+                }
+            });
+        }
+        
+        closeQrBtn.addEventListener('click', () => {
+            qrCodeContainer.style.display = 'none';
+            if (walletConnectProvider) {
+                try {
+                    walletConnectProvider.disconnect();
+                } catch (e) {
+                    // Ignore disconnect errors
+                }
+            }
+        });
         
         async function connectToBot() {
             if (!signer || !walletAddress) {
@@ -326,7 +498,12 @@ This does not require a transaction or cost any gas.`;
                 if (accounts.length > 0) {
                     connectMetaMask();
                 }
+            }).catch(() => {
+                // Silently fail if user hasn't connected before
             });
+        } else {
+            // Show helpful message if MetaMask is not installed
+            showStatus('💡 Install MetaMask to connect your wallet easily!', 'info');
         }
     </script>
 </body>
