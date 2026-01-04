@@ -102,11 +102,6 @@
             transform: translateY(0);
         }
         
-        .wallet-button.metamask {
-            background: #f6851b;
-            color: white;
-        }
-        
         .wallet-button.walletconnect {
             background: #3b99fc;
             color: white;
@@ -182,7 +177,7 @@
     <div class="container">
         <div class="logo">
             <h1>🔗 Connect Wallet</h1>
-            <p>Connect your wallet to start earning COPE rewards</p>
+            <p>Scan QR code with your mobile wallet to connect</p>
         </div>
         
         <div id="status" class="status"></div>
@@ -192,12 +187,8 @@
             <div id="walletAddress" class="wallet-address"></div>
         </div>
         
-        <button id="metamaskBtn" class="wallet-button metamask">
-            🦊 Connect MetaMask
-        </button>
-        
-        <button id="walletconnectBtn" class="wallet-button walletconnect">
-            📱 Scan QR Code (Mobile)
+        <button id="walletconnectBtn" class="wallet-button walletconnect" style="width: 100%; margin-bottom: 20px;">
+            📱 Scan QR Code to Connect Wallet
         </button>
         
         <div id="qrCodeContainer" style="display: none; text-align: center; margin: 20px 0;">
@@ -231,7 +222,6 @@
         const statusEl = document.getElementById('status');
         const connectedInfo = document.getElementById('connectedInfo');
         const walletAddressEl = document.getElementById('walletAddress');
-        const metamaskBtn = document.getElementById('metamaskBtn');
         const walletconnectBtn = document.getElementById('walletconnectBtn');
         const connectBtn = document.getElementById('connectBtn');
         const qrCodeContainer = document.getElementById('qrCodeContainer');
@@ -246,50 +236,6 @@
         
         function hideStatus() {
             statusEl.style.display = 'none';
-        }
-        
-        async function connectMetaMask() {
-            try {
-                if (typeof window.ethereum === 'undefined') {
-                    showStatus('MetaMask not found. Please install MetaMask extension or use a mobile wallet.', 'error');
-                    
-                    // Show helpful instructions
-                    const instructions = `
-                        <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 10px; text-align: left;">
-                            <strong>How to install MetaMask:</strong><br>
-                            1. <a href="https://metamask.io/download/" target="_blank" style="color: #667eea;">Download MetaMask</a><br>
-                            2. Install the browser extension<br>
-                            3. Create or import a wallet<br>
-                            4. Refresh this page and try again<br><br>
-                            <strong>Or use on mobile:</strong><br>
-                            Open this page in MetaMask's in-app browser
-                        </div>
-                    `;
-                    statusEl.innerHTML = statusEl.textContent + instructions;
-                    return;
-                }
-                
-                showStatus('Connecting to MetaMask...', 'info');
-                provider = new ethers.providers.Web3Provider(window.ethereum);
-                
-                // Request account access
-                await window.ethereum.request({ method: 'eth_requestAccounts' });
-                signer = provider.getSigner();
-                walletAddress = await signer.getAddress();
-                
-                walletAddressEl.textContent = walletAddress;
-                connectedInfo.classList.add('show');
-                connectBtn.classList.add('show');
-                hideStatus();
-                
-                showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
-            } catch (error) {
-                if (error.code === 4001) {
-                    showStatus('Connection rejected. Please approve the connection request.', 'error');
-                } else {
-                    showStatus('Failed to connect: ' + error.message, 'error');
-                }
-            }
         }
         
         async function connectWalletConnect() {
@@ -488,23 +434,11 @@ This does not require a transaction or cost any gas.`;
             }
         }
         
-        metamaskBtn.addEventListener('click', connectMetaMask);
         walletconnectBtn.addEventListener('click', connectWalletConnect);
         connectBtn.addEventListener('click', connectToBot);
         
-        // Check if already connected
-        if (typeof window.ethereum !== 'undefined') {
-            window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
-                if (accounts.length > 0) {
-                    connectMetaMask();
-                }
-            }).catch(() => {
-                // Silently fail if user hasn't connected before
-            });
-        } else {
-            // Show helpful message if MetaMask is not installed
-            showStatus('💡 Install MetaMask to connect your wallet easily!', 'info');
-        }
+        // Show initial instruction
+        showStatus('📱 Click the button above to generate a QR code for wallet connection', 'info');
     </script>
 </body>
 </html>
