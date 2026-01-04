@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Wallet - COPE Referral Bot</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .wallet-button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .wallet-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .wallet-button:active {
+            transform: translateY(0);
+        }
+        
+        .wallet-button.metamask {
+            background: #f6851b;
+            color: white;
+        }
+        
+        .wallet-button.walletconnect {
+            background: #3b99fc;
+            color: white;
+        }
+        
+        .wallet-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .connected-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .connected-info.show {
+            display: block;
+        }
+        
+        .wallet-address {
+            font-family: monospace;
+            font-size: 14px;
+            color: #667eea;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        
+        .connect-button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .connect-button.show {
+            display: block;
+        }
+        
+        .connect-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>🔗 Connect Wallet</h1>
+            <p>Connect your wallet to start earning COPE rewards</p>
+        </div>
+        
+        <div id="status" class="status"></div>
+        
+        <div id="connectedInfo" class="connected-info">
+            <strong>Connected Wallet:</strong>
+            <div id="walletAddress" class="wallet-address"></div>
+        </div>
+        
+        <button id="metamaskBtn" class="wallet-button metamask">
+            🦊 Connect MetaMask
+        </button>
+        
+        <button id="walletconnectBtn" class="wallet-button walletconnect">
+            🔷 Connect WalletConnect
+        </button>
+        
+        <button id="connectBtn" class="connect-button">
+            Connect to Bot
+        </button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        
+        let provider = null;
+        let signer = null;
+        let walletAddress = null;
+        
+        const statusEl = document.getElementById('status');
+        const connectedInfo = document.getElementById('connectedInfo');
+        const walletAddressEl = document.getElementById('walletAddress');
+        const metamaskBtn = document.getElementById('metamaskBtn');
+        const walletconnectBtn = document.getElementById('walletconnectBtn');
+        const connectBtn = document.getElementById('connectBtn');
+        
+        function showStatus(message, type = 'info') {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = 'block';
+        }
+        
+        function hideStatus() {
+            statusEl.style.display = 'none';
+        }
+        
+        async function connectMetaMask() {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    showStatus('MetaMask not found. Please install MetaMask extension.', 'error');
+                    return;
+                }
+                
+                showStatus('Connecting to MetaMask...', 'info');
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                
+                // Request account access
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                signer = provider.getSigner();
+                walletAddress = await signer.getAddress();
+                
+                walletAddressEl.textContent = walletAddress;
+                connectedInfo.classList.add('show');
+                connectBtn.classList.add('show');
+                hideStatus();
+                
+                showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
+            } catch (error) {
+                showStatus('Failed to connect: ' + error.message, 'error');
+            }
+        }
+        
+        async function connectWalletConnect() {
+            showStatus('WalletConnect integration coming soon. Please use MetaMask for now.', 'info');
+        }
+        
+        async function connectToBot() {
+            if (!signer || !walletAddress) {
+                showStatus('Please connect a wallet first', 'error');
+                return;
+            }
+            
+            try {
+                connectBtn.disabled = true;
+                connectBtn.innerHTML = '<span class="spinner"></span>Connecting...';
+                showStatus('Signing message to verify ownership...', 'info');
+                
+                // Get Telegram user data
+                const initData = tg.initData;
+                const telegramId = tg.initDataUnsafe.user?.id;
+                
+                if (!telegramId) {
+                    throw new Error('Telegram user data not available');
+                }
+                
+                // Create verification message
+                const message = `COPE Referral Bot - Wallet Connection
+
+Telegram ID: ${telegramId}
+Nonce: ${Date.now()}
+
+Sign this message to connect your wallet to the referral bot.
+This does not require a transaction or cost any gas.`;
+                
+                // Sign the message
+                const signature = await signer.signMessage(message);
+                
+                // Send data back to bot
+                const data = {
+                    walletAddress: walletAddress,
+                    signature: signature,
+                    message: message,
+                    telegramId: telegramId
+                };
+                
+                // Use Telegram WebApp sendData method
+                tg.sendData(JSON.stringify(data));
+                
+                showStatus('✅ Connection successful! You can close this window.', 'success');
+                connectBtn.innerHTML = '✅ Connected';
+                
+                // Close after 2 seconds
+                setTimeout(() => {
+                    tg.close();
+                }, 2000);
+                
+            } catch (error) {
+                showStatus('Connection failed: ' + error.message, 'error');
+                connectBtn.disabled = false;
+                connectBtn.innerHTML = 'Connect to Bot';
+            }
+        }
+        
+        metamaskBtn.addEventListener('click', connectMetaMask);
+        walletconnectBtn.addEventListener('click', connectWalletConnect);
+        connectBtn.addEventListener('click', connectToBot);
+        
+        // Check if already connected
+        if (typeof window.ethereum !== 'undefined') {
+            window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
+                if (accounts.length > 0) {
+                    connectMetaMask();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+
