@@ -1,0 +1,6 @@
+# Ignore everything except what we need
+*
+!.gitignore
+!index.html
+!README.md
+
