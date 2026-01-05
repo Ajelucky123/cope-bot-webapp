@@ -6,8 +6,13 @@
     <title>Connect Wallet - COPE Referral Bot</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
-    <script src="https://unpkg.com/@walletconnect/ethereum-provider@1.8.0/dist/umd/index.umd.js"></script>
+    <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.10.0/dist/index.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    
+    <!-- WalletConnect Project ID -->
+    <script>
+        const WALLETCONNECT_PROJECT_ID = '55ff69dc31f4b2fc487a1f0a576dcc96';
+    </script>
     <style>
         * {
             margin: 0;
@@ -217,7 +222,6 @@
         let provider = null;
         let signer = null;
         let walletAddress = null;
-        let walletConnectProvider = null;
         
         const statusEl = document.getElementById('status');
         const connectedInfo = document.getElementById('connectedInfo');
@@ -240,65 +244,66 @@
         
         async function connectWalletConnect() {
             try {
-                // Check if WalletConnect is available
-                if (typeof WalletConnectProvider === 'undefined') {
+                // Check if WalletConnect v2 is available
+                if (typeof EthereumProvider === 'undefined') {
                     showStatus('❌ WalletConnect library not loaded. Please refresh the page.', 'error');
-                    console.error('WalletConnectProvider is not defined');
+                    console.error('EthereumProvider is not defined');
+                    return;
+                }
+                
+                if (!WALLETCONNECT_PROJECT_ID || WALLETCONNECT_PROJECT_ID === 'YOUR_PROJECT_ID_HERE') {
+                    showStatus('❌ WalletConnect Project ID not configured.', 'error');
                     return;
                 }
                 
                 showStatus('Generating QR code...', 'info');
                 
-                // Initialize WalletConnect
-                walletConnectProvider = new WalletConnectProvider.default({
-                    rpc: {
-                        56: "https://bsc-dataseed1.binance.org/", // BNB Chain
-                    },
-                    chainId: 56,
+                // Initialize WalletConnect v2
+                provider = await EthereumProvider.init({
+                    projectId: WALLETCONNECT_PROJECT_ID,
+                    chains: [56], // BNB Chain
+                    optionalChains: [],
+                    showQrModal: false, // We'll show QR code ourselves
+                    metadata: {
+                        name: 'COPE Referral Bot',
+                        description: 'Connect your wallet to earn COPE rewards',
+                        url: window.location.origin,
+                        icons: []
+                    }
                 });
                 
-                console.log('WalletConnect provider initialized');
+                console.log('WalletConnect v2 provider initialized');
                 
-                // Listen for URI (QR code) - check if connector exists
-                if (walletConnectProvider.connector) {
-                    walletConnectProvider.connector.on('display_uri', (error, payload) => {
-                        if (error) {
-                            console.error('WalletConnect URI error:', error);
-                            showStatus('Error generating QR code: ' + error.message, 'error');
-                            return;
-                        }
-                        console.log('URI received:', payload);
-                        const uri = payload.params ? payload.params[0] : payload;
-                        if (uri) {
-                            generateQRCode(uri);
-                            qrCodeContainer.style.display = 'block';
-                            showStatus('📱 Scan the QR code with your mobile wallet', 'info');
-                        }
-                    });
-                    
-                    // Listen for connection
-                    walletConnectProvider.connector.on('connect', (error, payload) => {
-                        if (error) {
-                            console.error('WalletConnect connect error:', error);
-                            return;
-                        }
-                        console.log('Wallet connected:', payload);
-                        handleWalletConnected();
-                    });
-                } else {
-                    console.error('WalletConnect connector not available');
-                }
+                // Listen for display URI (QR code)
+                provider.on('display_uri', (uri) => {
+                    console.log('URI received:', uri);
+                    generateQRCode(uri);
+                    qrCodeContainer.style.display = 'block';
+                    showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                });
+                
+                // Listen for connection
+                provider.on('connect', () => {
+                    console.log('Wallet connected event');
+                    handleWalletConnected();
+                });
+                
+                // Listen for session update
+                provider.on('session_update', () => {
+                    console.log('Session updated');
+                    handleWalletConnected();
+                });
                 
                 // Function to handle wallet connection
                 function handleWalletConnected() {
-                    const accounts = walletConnectProvider.accounts;
+                    const accounts = provider.accounts;
                     console.log('Checking accounts:', accounts);
                     if (accounts && accounts.length > 0) {
                         walletAddress = accounts[0];
                         
                         // Create ethers provider from WalletConnect
-                        provider = new ethers.providers.Web3Provider(walletConnectProvider);
-                        signer = provider.getSigner();
+                        const ethersProvider = new ethers.providers.Web3Provider(provider);
+                        signer = ethersProvider.getSigner();
                         
                         walletAddressEl.textContent = walletAddress;
                         connectedInfo.classList.add('show');
@@ -312,49 +317,26 @@
                     return false;
                 }
                 
-                // Enable session (triggers QR code)
-                // Note: enable() waits for user to scan and approve
-                walletConnectProvider.enable().then(() => {
+                // Enable/Connect - this triggers QR code
+                try {
+                    await provider.enable();
                     console.log('WalletConnect enabled - connection approved');
                     handleWalletConnected();
-                }).catch((error) => {
+                } catch (error) {
                     console.error('WalletConnect enable error:', error);
-                    if (!error.message.includes('User closed')) {
+                    if (error.message && !error.message.includes('User closed') && !error.message.includes('User rejected')) {
                         showStatus('Connection error: ' + error.message, 'error');
+                    } else if (error.message && error.message.includes('User rejected')) {
+                        showStatus('Connection rejected. Please try again.', 'info');
                     }
-                });
-                
-                // Also poll for accounts in case the event doesn't fire
-                const pollInterval = setInterval(() => {
-                    if (walletConnectProvider.accounts && walletConnectProvider.accounts.length > 0) {
-                        if (handleWalletConnected()) {
-                            clearInterval(pollInterval);
-                        }
-                    }
-                }, 1000);
-                
-                // Stop polling after 5 minutes
-                setTimeout(() => {
-                    clearInterval(pollInterval);
-                }, 300000);
+                }
             } catch (error) {
-                if (error.message && error.message.includes('User closed modal') || error.message.includes('User closed')) {
+                console.error('WalletConnect error:', error);
+                if (error.message && (error.message.includes('User closed') || error.message.includes('User rejected'))) {
                     showStatus('Connection cancelled.', 'info');
                     qrCodeContainer.style.display = 'none';
                 } else {
-                    // Try to get URI from connector
-                    if (walletConnectProvider && walletConnectProvider.connector) {
-                        const uri = walletConnectProvider.connector.uri;
-                        if (uri) {
-                            generateQRCode(uri);
-                            qrCodeContainer.style.display = 'block';
-                            showStatus('📱 Scan the QR code with your mobile wallet', 'info');
-                        } else {
-                            showStatus('Failed to generate QR code. Please try again.', 'error');
-                        }
-                    } else {
-                        showStatus('Failed to connect: ' + error.message, 'error');
-                    }
+                    showStatus('Failed to connect: ' + (error.message || error), 'error');
                 }
             }
         }
@@ -380,50 +362,11 @@
             });
         }
         
-        // Listen for WalletConnect connection
-        if (typeof WalletConnectProvider !== 'undefined') {
-            // Set up event listeners for WalletConnect
-            window.addEventListener('load', () => {
-                // Check if there's an existing WalletConnect session
-                try {
-                    const wcProvider = new WalletConnectProvider.default({
-                        rpc: {
-                            56: "https://bsc-dataseed1.binance.org/",
-                        },
-                        chainId: 56,
-                    });
-                    
-                    wcProvider.on('connect', () => {
-                        const accounts = wcProvider.accounts;
-                        if (accounts && accounts.length > 0) {
-                            walletAddress = accounts[0];
-                            provider = new ethers.providers.Web3Provider(wcProvider);
-                            signer = provider.getSigner();
-                            
-                            walletAddressEl.textContent = walletAddress;
-                            connectedInfo.classList.add('show');
-                            connectBtn.classList.add('show');
-                            qrCodeContainer.style.display = 'none';
-                            showStatus('✅ Wallet connected!', 'success');
-                        }
-                    });
-                    
-                    wcProvider.on('display_uri', (uri) => {
-                        generateQRCode(uri);
-                        qrCodeContainer.style.display = 'block';
-                        showStatus('📱 Scan the QR code with your mobile wallet', 'info');
-                    });
-                } catch (e) {
-                    // WalletConnect not available, ignore
-                }
-            });
-        }
-        
         closeQrBtn.addEventListener('click', () => {
             qrCodeContainer.style.display = 'none';
-            if (walletConnectProvider) {
+            if (provider) {
                 try {
-                    walletConnectProvider.disconnect();
+                    provider.disconnect();
                 } catch (e) {
                     // Ignore disconnect errors
                 }
