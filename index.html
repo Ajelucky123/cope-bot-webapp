@@ -240,6 +240,13 @@
         
         async function connectWalletConnect() {
             try {
+                // Check if WalletConnect is available
+                if (typeof WalletConnectProvider === 'undefined') {
+                    showStatus('❌ WalletConnect library not loaded. Please refresh the page.', 'error');
+                    console.error('WalletConnectProvider is not defined');
+                    return;
+                }
+                
                 showStatus('Generating QR code...', 'info');
                 
                 // Initialize WalletConnect
@@ -250,40 +257,86 @@
                     chainId: 56,
                 });
                 
-                // Listen for URI (QR code)
-                walletConnectProvider.connector.on('display_uri', (error, payload) => {
-                    if (error) {
-                        console.error('WalletConnect URI error:', error);
-                        return;
+                console.log('WalletConnect provider initialized');
+                
+                // Listen for URI (QR code) - check if connector exists
+                if (walletConnectProvider.connector) {
+                    walletConnectProvider.connector.on('display_uri', (error, payload) => {
+                        if (error) {
+                            console.error('WalletConnect URI error:', error);
+                            showStatus('Error generating QR code: ' + error.message, 'error');
+                            return;
+                        }
+                        console.log('URI received:', payload);
+                        const uri = payload.params ? payload.params[0] : payload;
+                        if (uri) {
+                            generateQRCode(uri);
+                            qrCodeContainer.style.display = 'block';
+                            showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                        }
+                    });
+                    
+                    // Listen for connection
+                    walletConnectProvider.connector.on('connect', (error, payload) => {
+                        if (error) {
+                            console.error('WalletConnect connect error:', error);
+                            return;
+                        }
+                        console.log('Wallet connected:', payload);
+                        handleWalletConnected();
+                    });
+                } else {
+                    console.error('WalletConnect connector not available');
+                }
+                
+                // Function to handle wallet connection
+                function handleWalletConnected() {
+                    const accounts = walletConnectProvider.accounts;
+                    console.log('Checking accounts:', accounts);
+                    if (accounts && accounts.length > 0) {
+                        walletAddress = accounts[0];
+                        
+                        // Create ethers provider from WalletConnect
+                        provider = new ethers.providers.Web3Provider(walletConnectProvider);
+                        signer = provider.getSigner();
+                        
+                        walletAddressEl.textContent = walletAddress;
+                        connectedInfo.classList.add('show');
+                        connectBtn.classList.add('show');
+                        qrCodeContainer.style.display = 'none';
+                        hideStatus();
+                        
+                        showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
+                        return true;
                     }
-                    const uri = payload.params[0];
-                    if (uri) {
-                        generateQRCode(uri);
-                        qrCodeContainer.style.display = 'block';
-                        showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                    return false;
+                }
+                
+                // Enable session (triggers QR code)
+                // Note: enable() waits for user to scan and approve
+                walletConnectProvider.enable().then(() => {
+                    console.log('WalletConnect enabled - connection approved');
+                    handleWalletConnected();
+                }).catch((error) => {
+                    console.error('WalletConnect enable error:', error);
+                    if (!error.message.includes('User closed')) {
+                        showStatus('Connection error: ' + error.message, 'error');
                     }
                 });
                 
-                // Enable session (triggers QR code)
-                await walletConnectProvider.enable();
+                // Also poll for accounts in case the event doesn't fire
+                const pollInterval = setInterval(() => {
+                    if (walletConnectProvider.accounts && walletConnectProvider.accounts.length > 0) {
+                        if (handleWalletConnected()) {
+                            clearInterval(pollInterval);
+                        }
+                    }
+                }, 1000);
                 
-                // Get accounts
-                const accounts = walletConnectProvider.accounts;
-                if (accounts && accounts.length > 0) {
-                    walletAddress = accounts[0];
-                    
-                    // Create ethers provider from WalletConnect
-                    provider = new ethers.providers.Web3Provider(walletConnectProvider);
-                    signer = provider.getSigner();
-                    
-                    walletAddressEl.textContent = walletAddress;
-                    connectedInfo.classList.add('show');
-                    connectBtn.classList.add('show');
-                    qrCodeContainer.style.display = 'none';
-                    hideStatus();
-                    
-                    showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
-                }
+                // Stop polling after 5 minutes
+                setTimeout(() => {
+                    clearInterval(pollInterval);
+                }, 300000);
             } catch (error) {
                 if (error.message && error.message.includes('User closed modal') || error.message.includes('User closed')) {
                     showStatus('Connection cancelled.', 'info');
