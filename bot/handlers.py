@@ -1,0 +1,530 @@
+"""
+Telegram bot command handlers for COPE Referral Bot
+Implements all bot commands with wallet-referrer mapping logic
+"""
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import ContextTypes
+from typing import Optional
+import re
+import os
+import json
+import logging
+
+from database.db_manager import DatabaseManager
+from utils.wallet_verification import (
+    generate_verification_message, 
+    verify_signature,
+    generate_referral_code,
+    format_wallet_address
+)
+from config import (
+    TOKEN_NAME, TOKEN_SYMBOL, TOKEN_CONTRACT, CHAIN,
+    MIN_WITHDRAWAL_THRESHOLD, BOT_MESSAGES
+)
+
+logger = logging.getLogger(__name__)
+
+
+class BotHandlers:
+    """Handles all Telegram bot commands"""
+    
+    def __init__(self, db_manager: DatabaseManager):
+        self.db = db_manager
+    
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start command - Initialize user"""
+        user = update.effective_user
+        await self.db.create_user(user.id, user.username)
+        
+        welcome_msg = f"""🚀 Welcome to {TOKEN_NAME} Referral Bot!
+
+This bot helps you earn rewards by referring others to trade {TOKEN_NAME} on {CHAIN}.
+
+**How it works:**
+• Connect your wallet
+• Share your referral link
+• Earn 50% of COPE tax from referred wallets
+• Withdraw rewards weekly (min 100,000 COPE)
+
+Use /connect to link your wallet and get started!"""
+        
+        await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+    
+    async def connect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /connect command - Wallet connection via Web App"""
+        user = update.effective_user
+        await self.db.create_user(user.id, user.username)
+        
+        # Check if wallet already connected
+        existing_wallet = await self.db.get_wallet_by_telegram_id(user.id)
+        if existing_wallet:
+            await update.message.reply_text(
+                f"✅ Wallet already connected: `{format_wallet_address(existing_wallet)}`\n\n"
+                f"Use /referral to get your referral link!",
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Create Web App button for easy wallet connection
+        from telegram import WebAppInfo
+        
+        # Web App URL - update this to your hosted webapp URL
+        # For local testing, you can use ngrok or similar
+        web_app_url = os.getenv("WEBAPP_URL", "https://your-domain.com/webapp/index.html")
+        
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "🔗 Connect Wallet (Easy)",
+                web_app=WebAppInfo(url=web_app_url)
+            )
+        ]])
+        
+        message_text = """🔐 **Connect Your Wallet**
+
+Click the button below to connect your wallet easily using MetaMask or other Web3 wallets.
+
+**Benefits:**
+✅ One-click connection
+✅ Works with MetaMask, Trust Wallet, and more
+✅ Secure signature verification
+✅ No manual copying needed
+
+**Alternative Method:**
+If you prefer, you can still use the manual method by sending `/connect_manual`"""
+        
+        await update.message.reply_text(
+            message_text, 
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+    
+    async def connect_manual_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /connect_manual command - Manual wallet connection via signature"""
+        user = update.effective_user
+        await self.db.create_user(user.id, user.username)
+        
+        # Check if wallet already connected
+        existing_wallet = await self.db.get_wallet_by_telegram_id(user.id)
+        if existing_wallet:
+            await update.message.reply_text(
+                f"✅ Wallet already connected: `{format_wallet_address(existing_wallet)}`\n\n"
+                f"Use /referral to get your referral link!",
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Generate verification message
+        message, nonce = generate_verification_message(user.id)
+        
+        instructions = f"""🔐 **Manual Wallet Connection**
+
+1. Copy the message below
+2. Sign it with your wallet (MetaMask, Trust Wallet, etc.)
+3. Send the signature back here
+
+**Message to sign:**
+```
+{message}
+```
+
+**How to sign:**
+• MetaMask: Settings → Advanced → Show Hex Data → Sign Message
+• Trust Wallet: Settings → Wallet → Sign Message
+• Other wallets: Look for "Sign Message" feature
+
+After signing, send your signature here."""
+        
+        await update.message.reply_text(instructions, parse_mode='Markdown')
+        
+        # Store nonce in context for verification
+        context.user_data['pending_signature'] = {
+            'message': message,
+            'nonce': nonce
+        }
+    
+    async def handle_signature(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle wallet signature submission"""
+        user = update.effective_user
+        signature = update.message.text.strip()
+        
+        # Check if we're expecting a signature
+        pending = context.user_data.get('pending_signature')
+        if not pending:
+            await update.message.reply_text(
+                "❌ No pending signature request. Use /connect to start wallet connection."
+            )
+            return
+        
+        # Ask for wallet address
+        await update.message.reply_text(
+            "✅ Signature received! Now please send your wallet address (0x...)"
+        )
+        context.user_data['pending_signature']['signature'] = signature
+        context.user_data['pending_signature']['step'] = 'waiting_address'
+    
+    async def handle_wallet_address(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle wallet address submission after signature"""
+        user = update.effective_user
+        wallet_address = update.message.text.strip()
+        
+        # Validate address format
+        if not re.match(r'^0x[a-fA-F0-9]{40}$', wallet_address):
+            await update.message.reply_text(
+                "❌ Invalid wallet address format. Please send a valid Ethereum address (0x...)."
+            )
+            return
+        
+        pending = context.user_data.get('pending_signature')
+        if not pending or pending.get('step') != 'waiting_address':
+            await update.message.reply_text(
+                "❌ No pending signature. Use /connect to start wallet connection."
+            )
+            return
+        
+        # Verify signature
+        message = pending['message']
+        signature = pending['signature']
+        
+        if not verify_signature(message, signature, wallet_address):
+            await update.message.reply_text(
+                "❌ Signature verification failed. Please try again with /connect."
+            )
+            context.user_data.pop('pending_signature', None)
+            return
+        
+        # Connect wallet
+        success = await self.db.connect_wallet(user.id, wallet_address, signature, message)
+        if not success:
+            await update.message.reply_text(
+                "❌ This wallet is already connected to another Telegram account."
+            )
+            context.user_data.pop('pending_signature', None)
+            return
+        
+        # Check if user came from a referral link
+        referrer_code = context.user_data.get('referrer_code')
+        if referrer_code:
+            # Get referrer wallet from code
+            referrer_wallet = await self.db.get_wallet_by_referral_code(referrer_code)
+            if referrer_wallet:
+                # Prevent self-referral
+                if referrer_wallet.lower() != wallet_address.lower():
+                    # Create wallet-referrer mapping
+                    mapping_success = await self.db.create_referral_mapping(
+                        wallet_address, referrer_wallet
+                    )
+                    if mapping_success:
+                        await update.message.reply_text(
+                            f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                            f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                            f"🎉 You've been referred! Your wallet is now mapped to your referrer.\n"
+                            f"All your future COPE trades will credit rewards to them.\n\n"
+                            f"Use /referral to get your own referral link!",
+                            parse_mode='Markdown'
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                            f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                            f"⚠️ Could not create referral mapping (wallet may already be mapped).\n\n"
+                            f"Use /referral to get your referral link!",
+                            parse_mode='Markdown'
+                        )
+                else:
+                    await update.message.reply_text(
+                        f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                        f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                        f"⚠️ Self-referral prevented.\n\n"
+                        f"Use /referral to get your referral link!",
+                        parse_mode='Markdown'
+                    )
+                context.user_data.pop('referrer_code', None)
+            else:
+                await update.message.reply_text(
+                    f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                    f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                    f"Use /referral to get your referral link!",
+                    parse_mode='Markdown'
+                )
+        else:
+            await update.message.reply_text(
+                f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                f"Use /referral to get your referral link!",
+                parse_mode='Markdown'
+            )
+        context.user_data.pop('pending_signature', None)
+    
+    async def handle_webapp_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle wallet connection data from WebApp"""
+        user = update.effective_user
+        
+        try:
+            # Parse WebApp data
+            data_str = update.message.web_app_data.data
+            data = json.loads(data_str)
+            
+            wallet_address = data.get('walletAddress', '').strip()
+            signature = data.get('signature', '').strip()
+            message = data.get('message', '')
+            telegram_id = data.get('telegramId')
+            
+            # Verify Telegram ID matches
+            if telegram_id and int(telegram_id) != user.id:
+                await update.message.reply_text(
+                    "❌ Security error: Telegram ID mismatch. Please try again."
+                )
+                return
+            
+            # Validate wallet address
+            if not re.match(r'^0x[a-fA-F0-9]{40}$', wallet_address):
+                await update.message.reply_text(
+                    "❌ Invalid wallet address format."
+                )
+                return
+            
+            # Verify signature
+            if not verify_signature(message, signature, wallet_address):
+                await update.message.reply_text(
+                    "❌ Signature verification failed. Please try again."
+                )
+                return
+            
+            # Connect wallet
+            success = await self.db.connect_wallet(user.id, wallet_address, signature, message)
+            if not success:
+                await update.message.reply_text(
+                    "❌ This wallet is already connected to another Telegram account."
+                )
+                return
+            
+            # Check if user came from a referral link
+            referrer_code = context.user_data.get('referrer_code')
+            if referrer_code:
+                # Get referrer wallet from code
+                referrer_wallet = await self.db.get_wallet_by_referral_code(referrer_code)
+                if referrer_wallet:
+                    # Prevent self-referral
+                    if referrer_wallet.lower() != wallet_address.lower():
+                        # Create wallet-referrer mapping
+                        mapping_success = await self.db.create_referral_mapping(
+                            wallet_address, referrer_wallet
+                        )
+                        if mapping_success:
+                            await update.message.reply_text(
+                                f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                                f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                                f"🎉 You've been referred! Your wallet is now mapped to your referrer.\n"
+                                f"All your future COPE trades will credit rewards to them.\n\n"
+                                f"Use /referral to get your own referral link!",
+                                parse_mode='Markdown'
+                            )
+                            context.user_data.pop('referrer_code', None)
+                            return
+            
+            await update.message.reply_text(
+                f"✅ {BOT_MESSAGES['wallet_connected']}\n\n"
+                f"Wallet: `{format_wallet_address(wallet_address)}`\n\n"
+                f"Use /referral to get your referral link!",
+                parse_mode='Markdown'
+            )
+            
+        except json.JSONDecodeError:
+            await update.message.reply_text(
+                "❌ Invalid data received. Please try connecting again with /connect."
+            )
+        except Exception as e:
+            logger.error(f"Error handling WebApp data: {e}")
+            await update.message.reply_text(
+                "❌ An error occurred. Please try again with /connect."
+            )
+    
+    async def referral_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /referral command - Generate referral link"""
+        user = update.effective_user
+        
+        # Check if wallet is connected
+        wallet_address = await self.db.get_wallet_by_telegram_id(user.id)
+        if not wallet_address:
+            await update.message.reply_text(BOT_MESSAGES['no_wallet'])
+            return
+        
+        # Get or create referral code
+        referral_code = await self.db.get_or_create_referral_code(wallet_address)
+        referral_link = f"https://t.me/{context.bot.username}?start=ref_{referral_code}"
+        
+        message = f"""🔗 **Your Referral Link**
+
+```
+{referral_link}
+```
+
+**How it works:**
+1. Share this link with others
+2. When they connect their wallet and trade {TOKEN_NAME}, you earn 50% of the tax
+3. Their wallet is permanently mapped to you as referrer
+4. All their future trades credit rewards to you
+
+**Token Contract:** `{TOKEN_CONTRACT}`
+**Chain:** {CHAIN}
+
+Share your link and start earning! 🚀"""
+        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Copy Link", callback_data=f"copy_{referral_code}")],
+            [InlineKeyboardButton("📊 View Stats", callback_data="stats")]
+        ])
+        
+        await update.message.reply_text(message, parse_mode='Markdown', reply_markup=keyboard)
+    
+    async def handle_referral_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle referral link clicks (/start with referral code)"""
+        user = update.effective_user
+        args = context.args
+        
+        if not args or not args[0].startswith('ref_'):
+            await self.start_command(update, context)
+            return
+        
+        # Extract referrer code
+        referrer_code = args[0][4:]  # Remove 'ref_' prefix
+        
+        # Get referrer wallet from code (simplified - in production, store code->wallet mapping)
+        # For now, we'll need to find wallet by code or use a different approach
+        # This is a simplified version - you may want to store referral codes in DB
+        
+        await update.message.reply_text(
+            f"👋 Welcome! You were referred by someone.\n\n"
+            f"Use /connect to link your wallet and start trading {TOKEN_NAME}!\n\n"
+            f"Note: Your referrer will be assigned when you connect your wallet."
+        )
+        
+        # Store referrer code for later mapping
+        context.user_data['referrer_code'] = referrer_code
+    
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command - Show referral statistics"""
+        user = update.effective_user
+        
+        # Check if wallet is connected
+        wallet_address = await self.db.get_wallet_by_telegram_id(user.id)
+        if not wallet_address:
+            await update.message.reply_text(BOT_MESSAGES['no_wallet'])
+            return
+        
+        # Get stats
+        stats = await self.db.get_referral_stats(wallet_address)
+        
+        status_emoji = "✅" if stats['withdrawable'] else "⏳"
+        status_text = "Ready to withdraw" if stats['withdrawable'] else "Below threshold"
+        
+        message = f"""📊 **Your Referral Stats**
+
+**Wallet:** `{format_wallet_address(wallet_address)}`
+
+**Referred Wallets:** {stats['referred_count']}
+**Total Tax Generated:** {stats['total_tax_generated']:,.2f} {TOKEN_SYMBOL}
+**Accrued Rewards:** {stats['accrued_rewards']:,.2f} {TOKEN_SYMBOL}
+
+**Withdrawal Status:** {status_emoji} {status_text}
+**Minimum Threshold:** {MIN_WITHDRAWAL_THRESHOLD:,} {TOKEN_SYMBOL}
+
+Use /claim to check claim status and next distribution time."""
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+    
+    async def leaderboard_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /leaderboard command - Show top referrers"""
+        leaderboard = await self.db.get_leaderboard(limit=10)
+        
+        if not leaderboard:
+            await update.message.reply_text("📊 No referrals yet. Be the first!")
+            return
+        
+        message = "🏆 **Top Referrers**\n\n"
+        for i, (wallet, rewards, count) in enumerate(leaderboard, 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            message += f"{medal} `{format_wallet_address(wallet)}`\n"
+            message += f"   Rewards: {rewards:,.2f} {TOKEN_SYMBOL}\n"
+            message += f"   Referrals: {count}\n\n"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+    
+    async def rules_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /rules command - Plain-English explanation"""
+        message = f"""📖 **{TOKEN_NAME} Referral Bot Rules**
+
+**How Referrals Work:**
+• Connect your wallet to get a unique referral link
+• When someone uses your link and connects their wallet, they become your referral
+• Their wallet is **permanently mapped** to you as referrer
+• Mapping is **locked on first trade** - cannot be changed
+
+**Rewards:**
+• You earn **50% of COPE tax** from all trades by referred wallets
+• The other **50% goes to Community Tax Pool**
+• Rewards are denominated in {TOKEN_SYMBOL} tokens
+• Rewards accrue off-chain and settle weekly
+
+**Withdrawal:**
+• Minimum withdrawal: **{MIN_WITHDRAWAL_THRESHOLD:,} {TOKEN_SYMBOL}**
+• Rewards below threshold roll over to next cycle
+• Weekly distribution via Merkle tree claims
+
+**Community Pool:**
+• Unlocks when {TOKEN_NAME} reaches **1,000,000 market cap**
+• Distributed pro-rata to wallets with trading activity
+• Passive holders excluded
+
+**Protections:**
+• Self-referral is prevented
+• Referrer assignment is permanent after first trade
+• No minimum trade size or frequency caps
+
+**Token Contract:** `{TOKEN_CONTRACT}`
+**Chain:** {CHAIN}"""
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+    
+    async def claim_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /claim command - Claim status & next distribution"""
+        user = update.effective_user
+        
+        wallet_address = await self.db.get_wallet_by_telegram_id(user.id)
+        if not wallet_address:
+            await update.message.reply_text(BOT_MESSAGES['no_wallet'])
+            return
+        
+        # Get stats
+        stats = await self.db.get_referral_stats(wallet_address)
+        
+        # Calculate next distribution (simplified - in production, calculate actual next Monday)
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        days_until_monday = (7 - now.weekday()) % 7
+        if days_until_monday == 0 and now.hour < 0:  # If it's Monday before midnight
+            days_until_monday = 0
+        else:
+            days_until_monday = days_until_monday if days_until_monday > 0 else 7
+        next_distribution = now + timedelta(days=days_until_monday)
+        next_distribution = next_distribution.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        message = f"""💰 **Claim Status**
+
+**Wallet:** `{format_wallet_address(wallet_address)}`
+
+**Accrued Rewards:** {stats['accrued_rewards']:,.2f} {TOKEN_SYMBOL}
+
+**Withdrawal Eligibility:** {'✅ Eligible' if stats['withdrawable'] else '⏳ Below threshold'}
+
+**Next Distribution:** {next_distribution.strftime('%Y-%m-%d %H:%M UTC')}
+
+**How to Claim:**
+1. Wait for weekly distribution
+2. If eligible (≥{MIN_WITHDRAWAL_THRESHOLD:,} {TOKEN_SYMBOL}), claim on-chain
+3. Merkle root will be updated weekly
+
+Check back after the distribution period!"""
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+
