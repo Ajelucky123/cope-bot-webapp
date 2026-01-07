@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Wallet - COPE Referral Bot</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.10.0/dist/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    
+    <!-- Add your WalletConnect Project ID here -->
+    <!-- Get it from: https://cloud.walletconnect.com/ -->
+    <script>
+        const WALLETCONNECT_PROJECT_ID = 'YOUR_PROJECT_ID_HERE';
+    </script>
+    
+    <!-- Rest of your HTML and styles -->
+    <style>
+        /* Your existing styles here */
+    </style>
+</head>
+<body>
+    <!-- Your existing HTML structure -->
+    
+    <script>
+        // WalletConnect v2 implementation
+        // Note: You need to get a Project ID from https://cloud.walletconnect.com/
+        
+        let provider = null;
+        let signer = null;
+        let walletAddress = null;
+        
+        async function connectWalletConnectV2() {
+            try {
+                if (WALLETCONNECT_PROJECT_ID === 'YOUR_PROJECT_ID_HERE') {
+                    showStatus('❌ WalletConnect Project ID not configured. Please add your Project ID.', 'error');
+                    return;
+                }
+                
+                showStatus('Generating QR code...', 'info');
+                
+                // Initialize WalletConnect v2
+                provider = await EthereumProvider.init({
+                    projectId: WALLETCONNECT_PROJECT_ID,
+                    chains: [56], // BNB Chain
+                    optionalChains: [],
+                    showQrModal: false, // We'll show QR code ourselves
+                    metadata: {
+                        name: 'COPE Referral Bot',
+                        description: 'Connect your wallet to earn COPE rewards',
+                        url: window.location.href,
+                        icons: []
+                    }
+                });
+                
+                // Listen for display URI (QR code)
+                provider.on('display_uri', (uri) => {
+                    console.log('URI received:', uri);
+                    generateQRCode(uri);
+                    qrCodeContainer.style.display = 'block';
+                    showStatus('📱 Scan the QR code with your mobile wallet', 'info');
+                });
+                
+                // Connect - this triggers QR code
+                await provider.enable();
+                
+                // Get accounts
+                const accounts = provider.accounts;
+                if (accounts && accounts.length > 0) {
+                    walletAddress = accounts[0];
+                    signer = new ethers.providers.Web3Provider(provider).getSigner();
+                    
+                    walletAddressEl.textContent = walletAddress;
+                    connectedInfo.classList.add('show');
+                    connectBtn.classList.add('show');
+                    qrCodeContainer.style.display = 'none';
+                    hideStatus();
+                    
+                    showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
+                }
+            } catch (error) {
+                console.error('WalletConnect error:', error);
+                showStatus('Connection failed: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
+
