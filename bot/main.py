@@ -168,26 +168,15 @@ class COPEReferralBot:
         logger.info("Starting Telegram bot...")
         
         # Keep running
+
         try:
-            try:
-                async with self.application:
-                    await self.application.start()
-                    await self.application.updater.start_polling(drop_pending_updates=True)
-                    logger.info("COPE Referral Bot is running!")
-                    
-                    # Keep running until interrupted
-                    await asyncio.Event().wait()
-            except Exception as e:
-                import telegram.error
-                if isinstance(e, telegram.error.NetworkError) or isinstance(e, telegram.error.TimedOut):
-                    logger.warning(f"Failed to connect to Telegram: {e}")
-                    logger.warning("Starting in MOCK MODE (Event Listener Only)")
-                    logger.info("COPE Referral Bot is running! (MOCK MODE)")
-                    
-                    # Keep running until interrupted
-                    await asyncio.Event().wait()
-                else:
-                    raise e
+            async with self.application:
+                await self.application.start()
+                await self.application.updater.start_polling(drop_pending_updates=True)
+                logger.info("COPE Referral Bot is running!")
+                
+                # Keep running until interrupted
+                await asyncio.Event().wait()
         except KeyboardInterrupt:
             logger.info("Shutting down...")
             if self.event_listener:
