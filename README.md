@@ -1,4 +1,4 @@
-# COPE Telegram Referral Bot
+# COPE Telegram Referral Bot & Web App
 
 A Telegram bot-based referral and community incentive system for COPE token on BNB Chain. The system uses off-chain tracking and on-chain weekly reward distribution.
 
@@ -17,6 +17,18 @@ A Telegram bot-based referral and community incentive system for COPE token on B
 - **Symbol**: COPE
 - **Chain**: BNB Chain
 - **Contract**: `0x14EB783EE20eD7970Ad5e008044002d2c71D9148`
+
+## Web App
+
+This repository includes the Web App used for easy wallet connection in Telegram.
+
+### GitHub Pages Deployment
+The `webapp` folder is designed to be hosted on GitHub Pages.
+- **URL**: `https://YOUR_USERNAME.github.io/REPO_NAME/index.html`
+- **Setup**: Enable GitHub Pages in repository settings pointing to the `root` or `webapp` folder (depending on where you serve it from, currently in `webapp/`).
+
+### Customization
+You can customize `webapp/index.html` to change colors, styling, or add wallet options.
 
 ## Core Logic
 
@@ -96,79 +108,23 @@ python main.py
 
 ```
 copebot/
-├── bot/
-│   ├── __init__.py
-│   ├── main.py          # Main bot application
-│   └── handlers.py      # Command handlers
-├── chain/
-│   └── event_listener.py # BNB Chain event listener
-├── database/
-│   ├── schema.sql       # Database schema
-│   └── db_manager.py    # Database operations
-├── rewards/
-│   └── distribution.py  # Weekly reward distribution
-├── utils/
-│   └── wallet_verification.py # Signature verification
+├── bot/                 # Main bot application
+├── chain/               # BNB Chain event listener
+├── database/            # Database operations
+├── rewards/             # Weekly reward distribution
+├── utils/               # Helpers
+├── webapp/              # Web App for wallet connection
 ├── config.py            # Configuration
 ├── main.py              # Entry point
 ├── requirements.txt     # Dependencies
-└── README.md           # This file
+└── README.md            # This file
 ```
 
 ## Database Schema
 
 The system uses SQLite with the following key tables:
-
-- `users` - Telegram users
-- `wallets` - Connected wallets
-- `wallet_referrer_mapping` - **Core mapping logic** (referred_wallet → referrer_wallet)
-- `swap_events` - COPE buy/sell transactions
-- `referral_rewards` - Accrued rewards per referrer
-- `community_tax_pool` - Community pool tracking
-- `claim_history` - On-chain claim records
-
-## Event Tracking
-
-The bot listens for COPE token Transfer events on BNB Chain and:
-
-1. Identifies swaps (buys/sells) involving approved liquidity pools
-2. Calculates tax amount from each trade
-3. Uses wallet-referrer mapping to assign rewards
-4. Records swap events and updates reward accruals
-
-## Weekly Distribution
-
-Every Monday at 00:00 UTC:
-
-1. Calculate accrued rewards for the previous week using wallet-referrer mapping
-2. Filter wallets with rewards ≥ 100,000 COPE
-3. Generate Merkle tree
-4. Update Merkle root on-chain
-5. Enable on-chain claims
-
-## Abuse Prevention
-
-- **Self-referral protection**: A wallet cannot refer itself
-- **Mapping lock**: Referrer assignment is permanent after first trade
-- **Withdrawal threshold**: Minimum 100,000 COPE required
-
-## Important Notes
-
-1. **Tax Calculation**: Update the tax calculation logic in `chain/event_listener.py` based on your actual COPE token contract. The current implementation uses a placeholder 5% tax rate.
-
-2. **Liquidity Pools**: Add actual PancakeSwap pool addresses to `APPROVED_LIQUIDITY_POOLS` in `config.py`.
-
-3. **RPC Endpoint**: Use a reliable BNB Chain RPC endpoint. Public endpoints may have rate limits.
-
-4. **Referral Code Mapping**: The current implementation uses a simplified referral code system. You may want to store referral codes in the database for better tracking.
-
-5. **Merkle Tree Contract**: Deploy a claim contract on BNB Chain that accepts Merkle proofs. See pseudocode in `rewards/distribution.py`.
+- `users`, `wallets`, `wallet_referrer_mapping`, `swap_events`, `referral_rewards`, `community_tax_pool`, `claim_history`
 
 ## License
 
 [Add your license here]
-
-## Support
-
-[Add support information here]
-
