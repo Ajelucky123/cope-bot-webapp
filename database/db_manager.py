@@ -40,7 +40,7 @@ class DatabaseManager:
             return True
     
     async def connect_wallet(self, telegram_id: int, wallet_address: str, 
-                           signature: str, message: str) -> bool:
+                           signature: Optional[str] = None, message: Optional[str] = None) -> bool:
         """
         Connect a wallet to a Telegram user
         Returns True if successful, False if wallet already connected to another user

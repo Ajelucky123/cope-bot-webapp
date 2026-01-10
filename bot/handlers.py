@@ -51,7 +51,7 @@ Use /connect to link your wallet and get started!"""
         await update.message.reply_text(welcome_msg, parse_mode='Markdown')
     
     async def connect_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /connect command - Wallet connection via Web App"""
+        """Handle /connect command - Direct wallet address input"""
         user = update.effective_user
         await self.db.create_user(user.id, user.username)
         
@@ -65,38 +65,23 @@ Use /connect to link your wallet and get started!"""
             )
             return
         
-        # Create Web App button for easy wallet connection
-        from telegram import WebAppInfo
-        
-        # Web App URL - update this to your hosted webapp URL
-        # For local testing, you can use ngrok or similar
-        web_app_url = os.getenv("WEBAPP_URL", "https://your-domain.com/webapp/index.html")
-        
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                "🔗 Connect Wallet (Easy)",
-                web_app=WebAppInfo(url=web_app_url)
-            )
-        ]])
-        
-        message_text = """🔐 **Connect Your Wallet**
+        message_text = """🚀 **Connect Your Wallet**
 
-Click the button below to connect your wallet easily using MetaMask or other Web3 wallets.
+To participate in the COPE Referral program, please send your **BNB Chain (BSC) wallet address** (starting with 0x).
 
 **Benefits:**
-✅ One-click connection
-✅ Works with MetaMask, Trust Wallet, and more
-✅ Secure signature verification
-✅ No manual copying needed
+✅ Earn 50% of trade tax from your referrals
+✅ Weekly payouts in COPE
+✅ Simple registration, no signature required!
 
-**Alternative Method:**
-If you prefer, you can still use the manual method by sending `/connect_manual`"""
+*Please make sure you send the correct address. Rewards are distributed to this wallet.*"""
         
         await update.message.reply_text(
             message_text, 
-            parse_mode='Markdown',
-            reply_markup=keyboard
+            parse_mode='Markdown'
         )
+        # Set state to wait for address
+        context.user_data['waiting_for_address'] = True
     
     async def connect_manual_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /connect_manual command - Manual wallet connection via signature"""
@@ -163,29 +148,34 @@ After signing, send your signature here."""
         context.user_data['pending_signature']['step'] = 'waiting_address'
     
     async def handle_wallet_address(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle wallet address submission after signature"""
+        """Handle direct wallet address submission"""
         user = update.effective_user
-        wallet_address = update.message.text.strip()
+        wallet_address = update.message.text.strip().lower()
         
         # Validate address format
         if not re.match(r'^0x[a-fA-F0-9]{40}$', wallet_address):
-            await update.message.reply_text(
-                "❌ Invalid wallet address format. Please send a valid Ethereum address (0x...)."
-            )
+            # Only reply if we were explicitly waiting for an address
+            if context.user_data.get('waiting_for_address') or context.user_data.get('pending_signature'):
+                await update.message.reply_text(
+                    "❌ Invalid wallet address format. Please send a valid BSC address (0x...)."
+                )
             return
-        
+
+        # Check if we are handling a manual signature flow (legacy) or direct registration
         pending = context.user_data.get('pending_signature')
-        if not pending or pending.get('step') != 'waiting_address':
-            await update.message.reply_text(
-                "❌ No pending signature. Use /connect to start wallet connection."
-            )
+        is_legacy_flow = pending and pending.get('step') == 'waiting_address'
+        is_direct_flow = context.user_data.get('waiting_for_address')
+
+        if not is_legacy_flow and not is_direct_flow:
+            # Not in a connection flow, ignore
             return
         
-        # Verify signature
-        message = pending['message']
-        signature = pending['signature']
+        # Registration data
+        signature = pending['signature'] if is_legacy_flow else None
+        message = pending['message'] if is_legacy_flow else "Direct Registration"
         
-        if not verify_signature(message, signature, wallet_address):
+        # Verify signature if it's the legacy flow
+        if is_legacy_flow and not verify_signature(message, signature, wallet_address):
             await update.message.reply_text(
                 "❌ Signature verification failed. Please try again with /connect."
             )
@@ -199,6 +189,7 @@ After signing, send your signature here."""
                 "❌ This wallet is already connected to another Telegram account."
             )
             context.user_data.pop('pending_signature', None)
+            context.user_data.pop('waiting_for_address', None)
             return
         
         # Check if user came from a referral link

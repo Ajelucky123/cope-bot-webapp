@@ -45,7 +45,7 @@ MERKLE_TREE_DEPTH = 20
 
 # Bot Messages
 BOT_MESSAGES = {
-    "welcome": "Welcome to COPE Referral Bot! 🚀\n\nConnect your wallet to get started.",
+    "welcome": "Welcome to COPE Referral Bot! 🚀\n\nUse /connect to register your wallet and start earning.",
     "wallet_connected": "✅ Wallet connected successfully!",
     "referral_link_generated": "🔗 Your referral link has been generated!",
     "no_wallet": "❌ Please connect your wallet first using /connect",
