@@ -64,6 +64,7 @@ class COPEReferralBot:
         self.application.add_handler(CommandHandler("leaderboard", self.handlers.leaderboard_command))
         self.application.add_handler(CommandHandler("rules", self.handlers.rules_command))
         self.application.add_handler(CommandHandler("claim", self.handlers.claim_command))
+        self.application.add_handler(CommandHandler("withdraw", self.handlers.withdraw_command))
         
         # Message handlers (for signature and wallet address)
         self.application.add_handler(

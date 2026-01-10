@@ -535,3 +535,41 @@ Check back after the distribution period!"""
         
         await update.message.reply_text(message, parse_mode='Markdown')
 
+    async def withdraw_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /withdraw command - check eligibility and instructions"""
+        user = update.effective_user
+        
+        # Check if wallet is connected
+        wallet_address = await self.db.get_wallet_by_telegram_id(user.id)
+        if not wallet_address:
+            await update.message.reply_text(BOT_MESSAGES['no_wallet'])
+            return
+            
+        # Get current stats (unsettled)
+        stats = await self.db.get_referral_stats(wallet_address)
+        # Get settled rewards (ready for claim)
+        settled_total = await self.db.get_settled_rewards_total(wallet_address)
+        
+        status_emoji = "✅" if stats['withdrawable'] else "⏳"
+        eligibility = "Eligible for next settlement" if stats['withdrawable'] else "Below minimum threshold"
+        
+        message = f"""💰 **COPE Withdrawal & Rewards**
+
+🏦 **Settled Rewards:** `{settled_total:,.2f} {TOKEN_SYMBOL}`
+*These have been finalized in previous cycles and are available for on-chain claim.*
+
+⏳ **Accrued (This Cycle):** `{stats['accrued_rewards']:,.2f} {TOKEN_SYMBOL}`
+*These will be settled in the next weekly distribution (Every Monday 00:00 UTC).*
+
+📊 **Status:** {status_emoji} {eligibility}
+📉 **Min. Threshold:** `{MIN_WITHDRAWAL_THRESHOLD:,} {TOKEN_SYMBOL}`
+
+**How to Claim:**
+1. Wait for the weekly settlement (Monday).
+2. If your Accrued Rewards exceed the threshold, they will be added to the Merkle tree.
+3. Once settled, you can claim them on-chain using the claim portal (URL coming soon).
+
+_Note: Self-referrals are excluded from rewards._"""
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+

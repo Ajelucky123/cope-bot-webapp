@@ -290,6 +290,16 @@ class DatabaseManager:
             ) as cursor:
                 return await cursor.fetchall()
     
+    async def get_settled_rewards_total(self, referrer_wallet: str) -> float:
+        """Get total amount of settled (finalized) rewards for a wallet"""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT SUM(referral_reward) FROM referral_rewards WHERE referrer_wallet = ? AND is_settled = 1",
+                (referrer_wallet.lower(),)
+            ) as cursor:
+                result = await cursor.fetchone()
+                return float(result[0]) if result and result[0] else 0.0
+    
     async def calculate_weekly_rewards(self, period_start: datetime, 
                                       period_end: datetime) -> Dict[str, float]:
         """
