@@ -247,15 +247,17 @@ class DatabaseManager:
                 referred_count = (await cursor.fetchone())[0]
             
             # Calculate total tax generated and accrued rewards
-            # Sum all tax from swap events where trader is a referred wallet
+            # Sum all tax and volume from swap events where trader is a referred wallet
             async with db.execute(
-                """SELECT SUM(se.cope_tax_amount) 
+                """SELECT SUM(se.cope_tax_amount), SUM(se.cope_amount)
                    FROM swap_events se
                    JOIN wallet_referrer_mapping wrm ON se.trader_wallet = wrm.referred_wallet
                    WHERE wrm.referrer_wallet = ?""",
                 (referrer_wallet.lower(),)
             ) as cursor:
-                total_tax = (await cursor.fetchone())[0] or 0.0
+                result = await cursor.fetchone()
+                total_tax = result[0] or 0.0
+                total_volume = result[1] or 0.0
             
             accrued_rewards = total_tax * 0.5  # 50% to referrer
             withdrawable = accrued_rewards >= 100000  # 100,000 COPE threshold
@@ -263,6 +265,7 @@ class DatabaseManager:
             return {
                 'referred_count': referred_count,
                 'total_tax_generated': float(total_tax),
+                'total_volume': float(total_volume),
                 'accrued_rewards': float(accrued_rewards),
                 'withdrawable': withdrawable
             }
