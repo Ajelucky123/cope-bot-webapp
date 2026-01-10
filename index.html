@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connect Wallet - COPE Referral Bot</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
-    <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.10.0/dist/index.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.10.0/dist/index.umd.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    
+
     <!-- WalletConnect Project ID -->
     <script>
         const WALLETCONNECT_PROJECT_ID = '55ff69dc31f4b2fc487a1f0a576dcc96';
@@ -19,7 +20,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -29,32 +30,32 @@
             justify-content: center;
             padding: 20px;
         }
-        
+
         .container {
             background: white;
             border-radius: 20px;
             padding: 30px;
             max-width: 400px;
             width: 100%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
-        
+
         .logo {
             text-align: center;
             margin-bottom: 30px;
         }
-        
+
         .logo h1 {
             color: #667eea;
             font-size: 28px;
             margin-bottom: 10px;
         }
-        
+
         .logo p {
             color: #666;
             font-size: 14px;
         }
-        
+
         .status {
             padding: 15px;
             border-radius: 10px;
@@ -63,25 +64,25 @@
             font-size: 14px;
             display: none;
         }
-        
+
         .status.success {
             background: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
-        
+
         .status.error {
             background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
-        
+
         .status.info {
             background: #d1ecf1;
             color: #0c5460;
             border: 1px solid #bee5eb;
         }
-        
+
         .wallet-button {
             width: 100%;
             padding: 15px;
@@ -97,27 +98,27 @@
             justify-content: center;
             gap: 10px;
         }
-        
+
         .wallet-button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
         }
-        
+
         .wallet-button:active {
             transform: translateY(0);
         }
-        
+
         .wallet-button.walletconnect {
             background: #3b99fc;
             color: white;
         }
-        
+
         .wallet-button:disabled {
             background: #ccc;
             cursor: not-allowed;
             opacity: 0.6;
         }
-        
+
         .connected-info {
             background: #f8f9fa;
             padding: 20px;
@@ -125,11 +126,11 @@
             margin-bottom: 20px;
             display: none;
         }
-        
+
         .connected-info.show {
             display: block;
         }
-        
+
         .wallet-address {
             font-family: monospace;
             font-size: 14px;
@@ -137,7 +138,7 @@
             word-break: break-all;
             margin: 10px 0;
         }
-        
+
         .connect-button {
             width: 100%;
             padding: 15px;
@@ -151,16 +152,16 @@
             margin-top: 20px;
             display: none;
         }
-        
+
         .connect-button.show {
             display: block;
         }
-        
+
         .connect-button:disabled {
             background: #ccc;
             cursor: not-allowed;
         }
-        
+
         .spinner {
             border: 3px solid #f3f3f3;
             border-top: 3px solid #667eea;
@@ -171,44 +172,52 @@
             display: inline-block;
             margin-right: 10px;
         }
-        
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="logo">
             <h1>🔗 Connect Wallet</h1>
             <p>Scan QR code with your mobile wallet to connect</p>
         </div>
-        
+
         <div id="status" class="status"></div>
-        
+
         <div id="connectedInfo" class="connected-info">
             <strong>Connected Wallet:</strong>
             <div id="walletAddress" class="wallet-address"></div>
         </div>
-        
+
         <button id="walletconnectBtn" class="wallet-button walletconnect" style="width: 100%; margin-bottom: 20px;">
             📱 Scan QR Code to Connect Wallet
         </button>
-        
+
         <div id="qrCodeContainer" style="display: none; text-align: center; margin: 20px 0;">
-            <div style="background: white; padding: 20px; border-radius: 10px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <div
+                style="background: white; padding: 20px; border-radius: 10px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
                 <canvas id="qrCode"></canvas>
             </div>
             <p style="margin-top: 15px; color: #666; font-size: 14px;">
                 📱 Scan this QR code with your mobile wallet<br>
                 (MetaMask, Trust Wallet, Coinbase Wallet, etc.)
             </p>
-            <button id="closeQrBtn" style="margin-top: 10px; padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
+            <button id="closeQrBtn"
+                style="margin-top: 10px; padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
                 Close QR Code
             </button>
         </div>
-        
+
         <button id="connectBtn" class="connect-button">
             Connect to Bot
         </button>
@@ -218,11 +227,11 @@
         const tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
-        
+
         let provider = null;
         let signer = null;
         let walletAddress = null;
-        
+
         const statusEl = document.getElementById('status');
         const connectedInfo = document.getElementById('connectedInfo');
         const walletAddressEl = document.getElementById('walletAddress');
@@ -231,17 +240,17 @@
         const qrCodeContainer = document.getElementById('qrCodeContainer');
         const qrCodeCanvas = document.getElementById('qrCode');
         const closeQrBtn = document.getElementById('closeQrBtn');
-        
+
         function showStatus(message, type = 'info') {
             statusEl.textContent = message;
             statusEl.className = `status ${type}`;
             statusEl.style.display = 'block';
         }
-        
+
         function hideStatus() {
             statusEl.style.display = 'none';
         }
-        
+
         async function connectWalletConnect() {
             try {
                 // Resolve WalletConnect/EthereumProvider from multiple UMD globals
@@ -249,7 +258,7 @@
 
                 if (!EthereumProviderCtor) {
                     showStatus('❌ WalletConnect library not loaded. Please refresh the page.', 'error');
-                    console.error('EthereumProvider is not defined - available globals:', Object.keys(window).filter(k => /wallet|ethereum|WalletConnect/i.test(k)).slice(0,50));
+                    console.error('EthereumProvider is not defined - available globals:', Object.keys(window).filter(k => /wallet|ethereum|WalletConnect/i.test(k)).slice(0, 50));
                     return;
                 }
 
@@ -257,9 +266,9 @@
                     showStatus('❌ WalletConnect Project ID not configured.', 'error');
                     return;
                 }
-                
+
                 showStatus('Generating QR code...', 'info');
-                
+
                 // Initialize WalletConnect v2
                 provider = await EthereumProviderCtor.init({
                     projectId: WALLETCONNECT_PROJECT_ID,
@@ -273,9 +282,9 @@
                         icons: []
                     }
                 });
-                
+
                 console.log('WalletConnect v2 provider initialized');
-                
+
                 // Listen for display URI (QR code)
                 provider.on('display_uri', (uri) => {
                     console.log('URI received:', uri);
@@ -283,42 +292,42 @@
                     qrCodeContainer.style.display = 'block';
                     showStatus('📱 Scan the QR code with your mobile wallet', 'info');
                 });
-                
+
                 // Listen for connection
                 provider.on('connect', () => {
                     console.log('Wallet connected event');
                     handleWalletConnected();
                 });
-                
+
                 // Listen for session update
                 provider.on('session_update', () => {
                     console.log('Session updated');
                     handleWalletConnected();
                 });
-                
+
                 // Function to handle wallet connection
                 function handleWalletConnected() {
                     const accounts = provider.accounts;
                     console.log('Checking accounts:', accounts);
                     if (accounts && accounts.length > 0) {
                         walletAddress = accounts[0];
-                        
+
                         // Create ethers provider from WalletConnect
                         const ethersProvider = new ethers.providers.Web3Provider(provider);
                         signer = ethersProvider.getSigner();
-                        
+
                         walletAddressEl.textContent = walletAddress;
                         connectedInfo.classList.add('show');
                         connectBtn.classList.add('show');
                         qrCodeContainer.style.display = 'none';
                         hideStatus();
-                        
+
                         showStatus('✅ Wallet connected! Click "Connect to Bot" to link it.', 'success');
                         return true;
                     }
                     return false;
                 }
-                
+
                 // Enable/Connect - this triggers QR code
                 try {
                     await provider.enable();
@@ -342,12 +351,12 @@
                 }
             }
         }
-        
+
         function generateQRCode(uri) {
             // Clear previous QR code
             const ctx = qrCodeCanvas.getContext('2d');
             ctx.clearRect(0, 0, qrCodeCanvas.width, qrCodeCanvas.height);
-            
+
             // Generate QR code
             QRCode.toCanvas(qrCodeCanvas, uri, {
                 width: 250,
@@ -363,7 +372,7 @@
                 }
             });
         }
-        
+
         closeQrBtn.addEventListener('click', () => {
             qrCodeContainer.style.display = 'none';
             if (provider) {
@@ -374,26 +383,26 @@
                 }
             }
         });
-        
+
         async function connectToBot() {
             if (!signer || !walletAddress) {
                 showStatus('Please connect a wallet first', 'error');
                 return;
             }
-            
+
             try {
                 connectBtn.disabled = true;
                 connectBtn.innerHTML = '<span class="spinner"></span>Connecting...';
                 showStatus('Signing message to verify ownership...', 'info');
-                
+
                 // Get Telegram user data
                 const initData = tg.initData;
                 const telegramId = tg.initDataUnsafe.user?.id;
-                
+
                 if (!telegramId) {
                     throw new Error('Telegram user data not available');
                 }
-                
+
                 // Create verification message
                 const message = `COPE Referral Bot - Wallet Connection
 
@@ -402,10 +411,10 @@ Nonce: ${Date.now()}
 
 Sign this message to connect your wallet to the referral bot.
 This does not require a transaction or cost any gas.`;
-                
+
                 // Sign the message
                 const signature = await signer.signMessage(message);
-                
+
                 // Send data back to bot
                 const data = {
                     walletAddress: walletAddress,
@@ -413,31 +422,31 @@ This does not require a transaction or cost any gas.`;
                     message: message,
                     telegramId: telegramId
                 };
-                
+
                 // Use Telegram WebApp sendData method
                 tg.sendData(JSON.stringify(data));
-                
+
                 showStatus('✅ Connection successful! You can close this window.', 'success');
                 connectBtn.innerHTML = '✅ Connected';
-                
+
                 // Close after 2 seconds
                 setTimeout(() => {
                     tg.close();
                 }, 2000);
-                
+
             } catch (error) {
                 showStatus('Connection failed: ' + error.message, 'error');
                 connectBtn.disabled = false;
                 connectBtn.innerHTML = 'Connect to Bot';
             }
         }
-        
+
         walletconnectBtn.addEventListener('click', connectWalletConnect);
         connectBtn.addEventListener('click', connectToBot);
-        
+
         // Show initial instruction
         showStatus('📱 Click the button above to generate a QR code for wallet connection', 'info');
     </script>
 </body>
-</html>
 
+</html>
