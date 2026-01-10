@@ -108,7 +108,6 @@ class COPEReferralBot:
         
         if query.data == "stats":
             # Redirect to stats command
-            update.message = query.message
             await self.handlers.stats_command(update, context)
         elif query.data.startswith("copy_"):
             await query.answer("📋 Link copied! Share it with others.", show_alert=False)

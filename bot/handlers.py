@@ -400,9 +400,15 @@ Share your link and start earning! 🚀"""
         # Check if wallet is connected
         wallet_address = await self.db.get_wallet_by_telegram_id(user.id)
         if not wallet_address:
-            # If handled via callback query, answer the query
+            # If handled via callback query, answer the query with an alert
             if update.callback_query:
-                await update.callback_query.answer(BOT_MESSAGES['no_wallet'], show_alert=True)
+                # Use a specific message or default
+                msg = BOT_MESSAGES.get('no_wallet', "❌ Please connect your wallet first.")
+                try:
+                    await update.callback_query.answer(msg, show_alert=True)
+                except Exception:
+                    # Already answered, just reply
+                    await update.callback_query.message.reply_text(msg)
             else:
                 await update.message.reply_text(BOT_MESSAGES['no_wallet'])
             return
