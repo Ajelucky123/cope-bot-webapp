@@ -18,6 +18,7 @@ import re
 from config import TELEGRAM_BOT_TOKEN
 from database.db_manager import DatabaseManager
 from bot.handlers import BotHandlers
+from bot.trade_handlers import TradeHandlers
 from chain.event_listener import COPEEventListener
 from rewards.distribution import RewardDistributor
 import schedule
@@ -38,6 +39,7 @@ class COPEReferralBot:
     def __init__(self):
         self.db = DatabaseManager()
         self.handlers = BotHandlers(self.db)
+        self.trade_handlers = TradeHandlers(self.db)
         self.event_listener = None
         self.distributor = RewardDistributor(self.db)
         self.application = None
@@ -65,6 +67,8 @@ class COPEReferralBot:
         self.application.add_handler(CommandHandler("rules", self.handlers.rules_command))
         self.application.add_handler(CommandHandler("claim", self.handlers.claim_command))
         self.application.add_handler(CommandHandler("withdraw", self.handlers.withdraw_command))
+        self.application.add_handler(CommandHandler("buy", self.trade_handlers.trade_command))
+        self.application.add_handler(CommandHandler("sell", self.trade_handlers.trade_command))
         
         # Message handlers (for signature and wallet address)
         self.application.add_handler(
@@ -112,6 +116,8 @@ class COPEReferralBot:
             await self.handlers.stats_command(update, context)
         elif query.data.startswith("copy_"):
             await query.answer("📋 Link copied! Share it with others.", show_alert=False)
+        elif query.data.startswith("trade_"):
+            await self.trade_handlers.handle_callback(update, context)
     
     def start_event_listener(self):
         """Start the BNB Chain event listener in background"""

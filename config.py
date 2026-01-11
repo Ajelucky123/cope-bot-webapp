@@ -54,3 +54,13 @@ BOT_MESSAGES = {
     "mapping_locked": "🔒 This wallet's referrer mapping is locked after first trade.",
 }
 
+# Trading Configuration
+DEX_NAME = "PancakeSwap v2"
+BSC_SCAN_URL = "https://bscscan.com/token/"
+DEX_SCREENER_URL = "https://dexscreener.com/bsc/"
+
+# Default Trading Settings
+DEFAULT_GAS_SETTINGS = ["1.1", "3", "5"]
+DEFAULT_BUY_AMOUNTS = ["0.01", "0.1", "0.5", "1", "4"]
+DEFAULT_SELL_AMOUNTS = ["25%", "50%", "75%", "100%"]
+
