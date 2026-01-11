@@ -15,6 +15,8 @@ from config import (
 from database.db_manager import DatabaseManager
 from chain.token_utils import TokenUtils
 
+import html
+
 logger = logging.getLogger(__name__)
 
 class TradeHandlers:
@@ -35,6 +37,7 @@ class TradeHandlers:
                 "amount": "0.1", # Default amount selection
                 "wallet_index": 1
             }
+        self.user_sessions[user_id]["amount"] = self.user_sessions[user_id].get("amount", "0.1")
         return self.user_sessions[user_id]
 
     async def _format_trade_message(self, user_id: int, token_data: Dict, balances: Dict) -> str:
@@ -42,19 +45,25 @@ class TradeHandlers:
         mode = session["mode"].upper()
         
         # Format currency/numbers
-        price = float(token_data.get("price", 0))
-        mcap = float(token_data.get("mcap", 0))
-        liquidity = float(token_data.get("liquidity", 0))
+        try:
+            price = float(token_data.get("price", 0))
+            mcap = float(token_data.get("mcap", 0))
+            liquidity = float(token_data.get("liquidity", 0))
+        except (ValueError, TypeError):
+            price = mcap = liquidity = 0.0
+
+        name = html.escape(token_data.get('name', 'Unknown'))
+        symbol = html.escape(token_data.get('symbol', 'TOKEN'))
         
         message = (
             f"🟢 {mode} MODE 🟢\n\n"
-            f"🌕 {token_data['name']} • ${token_data['symbol']}\n"
+            f"🌕 {name} • ${symbol}\n"
             f"<code>{token_data['address']}</code>\n"
-            f"Dex: {token_data['dex']}\n\n"
+            f"Dex: {html.escape(token_data.get('dex', 'Unknown'))}\n\n"
             f"📊 Market Cap: ${mcap:,.2f}\n"
             f"💰 Price: ${price:.8f}\n"
             f"🏛 Liquidity: ${liquidity:,.2f}\n\n"
-            f"💼 W{session['wallet_index']} (Wallet {session['wallet_index']}): {balances['bnb']:.2f} BNB\n\n"
+            f"💼 W{session['wallet_index']} (Wallet {session['wallet_index']}): {balances.get('bnb', 0.0):.2f} BNB\n\n"
             f"📈 <a href='{BSC_SCAN_URL}{token_data['address']}'>BSCScan</a> • "
             f"<a href='{DEX_SCREENER_URL}{token_data['address']}'>DexScreener</a>"
         )
@@ -120,70 +129,76 @@ class TradeHandlers:
 
     async def trade_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Entry point for /buy and /sell commands"""
-        user_id = update.effective_user.id
-        command = update.message.text.lower()
-        
-        session = self._get_user_session(user_id)
-        session["mode"] = "buy" if "buy" in command else "sell"
-        
-        # Get user's wallet address from DB
-        wallet_address = await self.db.get_wallet_by_telegram_id(user_id)
-        if not wallet_address:
-            await update.message.reply_text(
-                "❌ Please connect your wallet first using /connect"
-            )
-            return
-
-        # Fetch data
-        token_data = await self.token_utils.get_token_data(TOKEN_CONTRACT)
-        balances = await self.token_utils.get_wallet_balances(wallet_address)
-        
-        message = await self._format_trade_message(user_id, token_data, balances)
-        reply_markup = self._get_trade_keyboard(user_id)
-        
-        await update.message.reply_html(message, reply_markup=reply_markup, disable_web_page_preview=True)
-
-    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle inline button clicks for the trading UI"""
-        query = update.callback_query
-        user_id = query.from_user.id
-        data = query.data
-        
-        session = self._get_user_session(user_id)
-        
-        was_updated = False
-        
-        if data.startswith("trade_mode_"):
-            session["mode"] = data.split("_")[-1]
-            was_updated = True
-        elif data.startswith("trade_gas_"):
-            session["gas"] = data.split("_")[-1]
-            was_updated = True
-        elif data.startswith("trade_amount_"):
-            session["amount"] = data.split("_")[-1]
-            was_updated = True
-        elif data == "trade_refresh":
-            was_updated = True
-        
-        if was_updated:
-            # Re-fetch data and update message
+        try:
+            user_id = update.effective_user.id
+            command = update.message.text.lower()
+            
+            session = self._get_user_session(user_id)
+            session["mode"] = "buy" if "buy" in command else "sell"
+            
+            # Get user's wallet address from DB
             wallet_address = await self.db.get_wallet_by_telegram_id(user_id)
+            if not wallet_address:
+                await update.message.reply_text(
+                    "❌ Please connect your wallet first using /connect"
+                )
+                return
+
+            # Fetch data
             token_data = await self.token_utils.get_token_data(TOKEN_CONTRACT)
             balances = await self.token_utils.get_wallet_balances(wallet_address)
             
             message = await self._format_trade_message(user_id, token_data, balances)
             reply_markup = self._get_trade_keyboard(user_id)
             
-            try:
-                await query.edit_message_text(
-                    message, 
-                    reply_markup=reply_markup, 
-                    parse_mode='HTML', 
-                    disable_web_page_preview=True
-                )
-            except Exception as e:
-                # Handle "message is not modified" error which happens if nothing changed but refresh clicked
-                logger.debug(f"Edit message error: {e}")
-                pass
-        
-        await query.answer()
+            await update.message.reply_html(message, reply_markup=reply_markup)
+        except Exception as e:
+            logger.error(f"Error in trade_command: {e}", exc_info=True)
+            await update.message.reply_text("❌ An error occurred while processing the trade command.")
+
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle inline button clicks for the trading UI"""
+        query = update.callback_query
+        try:
+            user_id = query.from_user.id
+            data = query.data
+            
+            session = self._get_user_session(user_id)
+            
+            was_updated = False
+            
+            if data.startswith("trade_mode_"):
+                session["mode"] = data.split("_")[-1]
+                was_updated = True
+            elif data.startswith("trade_gas_"):
+                session["gas"] = data.split("_")[-1]
+                was_updated = True
+            elif data.startswith("trade_amount_"):
+                session["amount"] = data.split("_")[-1]
+                was_updated = True
+            elif data == "trade_refresh":
+                was_updated = True
+            
+            if was_updated:
+                # Re-fetch data and update message
+                wallet_address = await self.db.get_wallet_by_telegram_id(user_id)
+                token_data = await self.token_utils.get_token_data(TOKEN_CONTRACT)
+                balances = await self.token_utils.get_wallet_balances(wallet_address)
+                
+                message = await self._format_trade_message(user_id, token_data, balances)
+                reply_markup = self._get_trade_keyboard(user_id)
+                
+                try:
+                    await query.edit_message_text(
+                        message, 
+                        reply_markup=reply_markup, 
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    if "Message is not modified" not in str(e):
+                        logger.error(f"Error editing message: {e}")
+            
+            await query.answer()
+        except Exception as e:
+            logger.error(f"Error in handle_callback: {e}", exc_info=True)
+            await query.answer("❌ An error occurred.", show_alert=True)
